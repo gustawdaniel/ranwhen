@@ -160,7 +160,7 @@ def format_heading(heading):
 
 
 # ranwhen parses the output of this command
-command = "last -R -F reboot"
+command = "last -R -F reboot -f /var/log/wtmp.1"
 
 
 # Major time granularity (lines)
