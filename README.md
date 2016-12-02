@@ -4,6 +4,9 @@ ranwhen is a Python script that graphically shows **in your terminal** when your
 
 ![Screenshot](Screenshot.png?raw=true)
 
+# Now theres is problem with logs: look at screen
+
+![](http://i.imgur.com/WtHJOOy.png)
 
 # Requirements
 
