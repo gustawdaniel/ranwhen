@@ -10,7 +10,6 @@ class Ranwhen < Formula
 
   def install
     system "cargo", "install", *std_cargo_args
-    bin.install_symlink "ranwhen" => "runwhen"
   end
 
   def post_install

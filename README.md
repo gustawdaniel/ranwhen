@@ -73,15 +73,13 @@ macOS does not maintain a continuous Linux-style `/var/log/wtmp` reboot log acro
 ### Installation
 
 #### Arch Linux (AUR)
-Install using your preferred AUR helper (both package names `ranwhen` and `runwhen` are supported and install the native Rust binary with symlinks):
+Install using your preferred AUR helper:
 ```bash
 paru -S ranwhen
-# or:
-paru -S runwhen
 # or development git version:
 paru -S ranwhen-git
 ```
-The PKGBUILD definitions are maintained in [`aur/PKGBUILD`](aur/PKGBUILD), [`aur/runwhen/PKGBUILD`](aur/runwhen/PKGBUILD), and [`aur/ranwhen-git/PKGBUILD`](aur/ranwhen-git/PKGBUILD).
+The PKGBUILD definitions are maintained in [`aur/PKGBUILD`](aur/PKGBUILD) and [`aur/ranwhen-git/PKGBUILD`](aur/ranwhen-git/PKGBUILD).
 
 #### macOS (Homebrew Tap)
 Add the official tap and install `ranwhen`:
