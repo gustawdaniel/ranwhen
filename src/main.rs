@@ -369,10 +369,63 @@ fn get_default_lines() -> Result<Vec<String>, String> {
     }
 }
 
+fn fetch_remote_lines(host: &str) -> Result<Vec<String>, String> {
+    // 1. Detect remote OS
+    let uname_out = Command::new("ssh")
+        .args([host, "uname -s"])
+        .output()
+        .map_err(|e| format!("Failed to run ssh for '{}': {}", host, e))?;
+
+    if !uname_out.status.success() {
+        let err_msg = String::from_utf8_lossy(&uname_out.stderr);
+        return Err(format!("Could not connect to '{}' via SSH: {}", host, err_msg.trim()));
+    }
+
+    let remote_os = String::from_utf8_lossy(&uname_out.stdout).trim().to_string();
+
+    // 2. Try remote 'ranwhen --raw' first if available
+    let ranwhen_out = Command::new("ssh")
+        .args([host, "ranwhen --raw 2>/dev/null"])
+        .output();
+
+    if let Ok(ref out) = ranwhen_out {
+        if out.status.success() && !out.stdout.is_empty() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+            if !lines.is_empty() {
+                return Ok(lines);
+            }
+        }
+    }
+
+    // 3. Fallback based on OS
+    if remote_os == "Darwin" {
+        let (spans, live) = macos::collect_all_sessions(Some(host), 60);
+        Ok(macos::format_ranwhen_lines(&spans, live))
+    } else {
+        // Linux / BSD: query last -R -F reboot remotely
+        let last_out = Command::new("ssh")
+            .args([host, "last -R -F reboot"])
+            .output()
+            .map_err(|e| format!("Failed to run 'last' on '{}': {}", host, e))?;
+
+        if !last_out.status.success() {
+            let err = String::from_utf8_lossy(&last_out.stderr);
+            return Err(format!("Failed to retrieve reboot history from '{}': {}", host, err.trim()));
+        }
+
+        let text = String::from_utf8_lossy(&last_out.stdout);
+        let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+        if lines.is_empty() {
+            return Err(format!("No reboot history found on '{}'", host));
+        }
+        Ok(lines)
+    }
+}
+
 fn get_input_lines(opts: &CliOptions) -> Result<Vec<String>, String> {
     if let Some(ref h) = opts.host {
-        let (spans, live) = macos::collect_all_sessions(Some(h.as_str()), 60);
-        return Ok(macos::format_ranwhen_lines(&spans, live));
+        return fetch_remote_lines(h);
     }
 
     if let Some(ref wtmp_file) = opts.wtmp_arg {

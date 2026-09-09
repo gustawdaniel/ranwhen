@@ -48,26 +48,30 @@ cargo build --release
 ./target/release/ranwhen
 ```
 
-### macOS Support & Remote Queries
-macOS does not maintain a continuous Linux-style `/var/log/wtmp` reboot log across sleep cycles. `ranwhen` natively supports macOS by querying display backlit activity (CoreDuet) and power events (`pmset`), merging short gaps (< 2 minutes), and archiving them permanently into `~/.local/share/ranwhen/activity_sessions.log`.
+### Remote SSH Queries & macOS Support
+`ranwhen` can query **any remote machine** (Linux servers, macOS laptops, or VPS instances) over SSH:
 
-* **Query a remote macOS machine over SSH**:
+* **Query any remote Linux or macOS system**:
   ```bash
-  ranwhen mac
-  ranwhen hg
+  ranwhen user@server.example.com
+  ranwhen my-vps
+  ranwhen macbook
   # or explicitly:
-  ranwhen --host user@macbook
+  ranwhen --host remote-host
   ```
-* **Install the persistent background collector (LaunchAgent)** on macOS:
+  - **Remote Linux hosts**: automatically inspects remote reboot history via `/var/log/wtmp` (does not even require `ranwhen` to be preinstalled on the remote server).
+  - **Remote macOS hosts**: queries actual screen/display backlit sessions and power state events over SSH.
+  - If `ranwhen` is already installed on the remote machine, it communicates using high-performance raw streaming (`--raw`).
+
+* **macOS Activity Persistence**:
+  macOS does not maintain a continuous Linux-style `/var/log/wtmp` reboot log across sleep cycles. `ranwhen` natively queries display backlit activity (CoreDuet) and power events (`pmset`), merging short gaps (< 2 minutes), and archiving them permanently into `~/.local/share/ranwhen/activity_sessions.log`.
+
+* **Background collector (LaunchAgent) on macOS**:
   ```bash
   ranwhen --install-daemon
-  # or remotely from Linux:
-  ranwhen --install-daemon --host mac
-  ```
-* **Check or uninstall daemon**:
-  ```bash
-  ranwhen --status-daemon [--host mac]
-  ranwhen --uninstall-daemon [--host mac]
+  # or check/uninstall:
+  ranwhen --status-daemon
+  ranwhen --uninstall-daemon
   ```
 
 ### Installation
