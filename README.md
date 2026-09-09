@@ -90,9 +90,10 @@ paru -S ranwhen-git
 The PKGBUILD definitions are maintained in [`aur/PKGBUILD`](aur/PKGBUILD) (binary package) and [`aur/ranwhen-git/PKGBUILD`](aur/ranwhen-git/PKGBUILD) (git package).
 
 #### macOS (Homebrew Tap)
-Add the official tap and install `ranwhen`:
+Add the official tap, trust it (required on Homebrew 6+), and install `ranwhen`:
 ```bash
 brew tap gustawdaniel/ranwhen
+brew trust gustawdaniel/ranwhen
 brew install ranwhen
 ```
 The formula automatically registers the background LaunchAgent collector to ensure your activity history is preserved.
