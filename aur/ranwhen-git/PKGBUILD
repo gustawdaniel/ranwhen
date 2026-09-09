@@ -1,0 +1,35 @@
+# Maintainer: Daniel Gustaw <gustaw.daniel@gmail.com>
+pkgname=ranwhen-git
+pkgver=r58.a1b2c3d
+pkgrel=1
+pkgdesc="Visualize when your system was running (written in Rust, git development version)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/gustawdaniel/ranwhen"
+license=('GPL-3.0-or-later')
+depends=('gcc-libs')
+makedepends=('git' 'cargo')
+provides=('ranwhen')
+conflicts=('ranwhen')
+source=("git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/ranwhen"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "$srcdir/ranwhen"
+  cargo build --release
+}
+
+check() {
+  cd "$srcdir/ranwhen"
+  cargo test --release
+}
+
+package() {
+  cd "$srcdir/ranwhen"
+  install -Dm755 "target/release/ranwhen" "$pkgdir/usr/bin/ranwhen"
+  install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

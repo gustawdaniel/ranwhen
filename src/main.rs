@@ -22,6 +22,8 @@ use std::io::{self, BufRead, BufReader, BufWriter, IsTerminal, Read, Write};
 use std::path::Path;
 use std::process::Command;
 
+mod macos;
+
 const FOREGROUND_COLOR: u8 = 251;
 const HEADING_COLOR: u8 = 208;
 const HEADING_LINE_COLOR: u8 = 246;
@@ -227,25 +229,49 @@ fn run_last_command(extra_args: &[&str]) -> Result<Vec<String>, String> {
     Ok(stdout.lines().map(|s| s.to_string()).collect())
 }
 
+struct CliOptions {
+    file_arg: Option<String>,
+    wtmp_arg: Option<String>,
+    host: Option<String>,
+    collect: bool,
+    install_daemon: bool,
+    status_daemon: bool,
+    uninstall_daemon: bool,
+    raw: bool,
+}
+
 fn print_help() {
-    println!("usage: ranwhen [-h] [-f WTMP_FILE] [file]");
+    println!("usage: ranwhen [-h] [-f WTMP_FILE] [--host HOST] [--collect] [--install-daemon] [--status-daemon] [--raw] [target]");
     println!();
     println!("ranwhen – Visualize when your system was running");
     println!();
     println!("positional arguments:");
-    println!("  file                  Path to a text log file (e.g. output of 'last') or");
-    println!("                        binary wtmp file. Use '-' for stdin.");
+    println!("  target                Path to a log file, '-' for stdin, or remote SSH host (e.g. 'mac', 'hg')");
     println!();
     println!("options:");
     println!("  -h, --help            show this help message and exit");
     println!("  -f, --file-wtmp WTMP_FILE");
     println!("                        Explicit binary wtmp file to pass to 'last -f'");
+    println!("  --host HOST           Remote host to inspect via SSH");
+    println!("  --collect             Collect & merge latest activity into persistent history vault");
+    println!("  --install-daemon      Install & load background collection daemon (macOS launchd)");
+    println!("  --status-daemon       Check status of background collection daemon");
+    println!("  --uninstall-daemon    Uninstall background collection daemon");
+    println!("  --raw                 Output synthetic 'last -F -w -x' lines without rendering calendar");
 }
 
-fn get_input_lines() -> Result<Vec<String>, String> {
+fn parse_cli_args() -> CliOptions {
     let args: Vec<String> = std::env::args().collect();
-    let mut file_arg: Option<String> = None;
-    let mut wtmp_arg: Option<String> = None;
+    let mut opts = CliOptions {
+        file_arg: None,
+        wtmp_arg: None,
+        host: None,
+        collect: false,
+        install_daemon: false,
+        status_daemon: false,
+        uninstall_daemon: false,
+        raw: false,
+    };
 
     let mut i = 1;
     while i < args.len() {
@@ -257,88 +283,170 @@ fn get_input_lines() -> Result<Vec<String>, String> {
             "-f" | "--file-wtmp" => {
                 i += 1;
                 if i < args.len() {
-                    wtmp_arg = Some(args[i].clone());
+                    opts.wtmp_arg = Some(args[i].clone());
                 } else {
-                    return Err("Error: -f / --file-wtmp requires an argument".to_string());
+                    eprintln!("Error: -f / --file-wtmp requires an argument");
+                    std::process::exit(1);
                 }
             }
             arg if arg.starts_with("-f") => {
-                wtmp_arg = Some(arg[2..].to_string());
+                opts.wtmp_arg = Some(arg[2..].to_string());
             }
-            arg if !arg.starts_with('-') => {
-                if file_arg.is_none() {
-                    file_arg = Some(arg.to_string());
+            "--host" => {
+                i += 1;
+                if i < args.len() {
+                    opts.host = Some(args[i].clone());
+                } else {
+                    eprintln!("Error: --host requires an argument");
+                    std::process::exit(1);
                 }
             }
-            _ => {}
+            "--collect" => {
+                opts.collect = true;
+            }
+            "--install-daemon" => {
+                opts.install_daemon = true;
+            }
+            "--status-daemon" => {
+                opts.status_daemon = true;
+            }
+            "--uninstall-daemon" => {
+                opts.uninstall_daemon = true;
+            }
+            "--raw" => {
+                opts.raw = true;
+            }
+            arg if !arg.starts_with('-') => {
+                if opts.file_arg.is_none() {
+                    opts.file_arg = Some(arg.to_string());
+                }
+            }
+            unknown => {
+                eprintln!("Warning: unknown option '{}'", unknown);
+            }
         }
         i += 1;
     }
 
-    // 1. Explicit -f / --file-wtmp argument
-    if let Some(wtmp_file) = wtmp_arg {
-        return run_last_command(&["-f", &wtmp_file]);
+    // If positional target is not an existing file or '-', treat as host
+    if let Some(ref target) = opts.file_arg {
+        if target != "-" && !Path::new(target).exists() && opts.host.is_none() {
+            opts.host = Some(target.clone());
+            opts.file_arg = None;
+        }
     }
 
-    // 2. Positional file argument or stdin '-'
-    if let Some(path) = file_arg {
+    opts
+}
+
+fn get_default_lines() -> Result<Vec<String>, String> {
+    if cfg!(target_os = "macos") {
+        let (spans, live) = macos::collect_all_sessions(None, 60);
+        Ok(macos::format_ranwhen_lines(&spans, live))
+    } else {
+        let mut existing_wtmp = Vec::new();
+        if Path::new("/var/log/wtmp").exists() {
+            existing_wtmp.push("/var/log/wtmp".to_string());
+        }
+        let mut idx = 1;
+        while Path::new(&format!("/var/log/wtmp.{}", idx)).exists() {
+            existing_wtmp.push(format!("/var/log/wtmp.{}", idx));
+            idx += 1;
+        }
+
+        if existing_wtmp.len() > 1 {
+            let mut cmd_args = Vec::new();
+            for f in &existing_wtmp {
+                cmd_args.push("-f");
+                cmd_args.push(f.as_str());
+            }
+            run_last_command(&cmd_args)
+        } else if existing_wtmp.len() == 1 && existing_wtmp[0] != "/var/log/wtmp" {
+            run_last_command(&["-f", &existing_wtmp[0]])
+        } else {
+            run_last_command(&[])
+        }
+    }
+}
+
+fn get_input_lines(opts: &CliOptions) -> Result<Vec<String>, String> {
+    if let Some(ref h) = opts.host {
+        let (spans, live) = macos::collect_all_sessions(Some(h.as_str()), 60);
+        return Ok(macos::format_ranwhen_lines(&spans, live));
+    }
+
+    if let Some(ref wtmp_file) = opts.wtmp_arg {
+        return run_last_command(&["-f", wtmp_file]);
+    }
+
+    if let Some(ref path) = opts.file_arg {
         if path == "-" {
             let stdin = io::stdin();
             return Ok(stdin.lock().lines().filter_map(|l| l.ok()).collect());
         }
-        if is_binary_file(&path) {
-            return run_last_command(&["-f", &path]);
+        if is_binary_file(path) {
+            return run_last_command(&["-f", path]);
         } else {
-            let f = File::open(&path).map_err(|e| format!("Error reading file '{}': {}", path, e))?;
+            let f = File::open(path).map_err(|e| format!("Error reading file '{}': {}", path, e))?;
             let reader = BufReader::new(f);
             return Ok(reader.lines().filter_map(|l| l.ok()).collect());
         }
     }
 
-    // 3. Piped stdin (e.g. cat file | ranwhen)
-    if !io::stdin().is_terminal() {
-        let stdin = io::stdin();
-        let lines: Vec<String> = stdin.lock().lines().filter_map(|l| l.ok()).collect();
-        if !lines.is_empty() {
-            return Ok(lines);
-        }
-    }
-
-    // 4. Default: discover existing wtmp files
-    let mut existing_wtmp = Vec::new();
-    if Path::new("/var/log/wtmp").exists() {
-        existing_wtmp.push("/var/log/wtmp".to_string());
-    }
-    let mut idx = 1;
-    while Path::new(&format!("/var/log/wtmp.{}", idx)).exists() {
-        existing_wtmp.push(format!("/var/log/wtmp.{}", idx));
-        idx += 1;
-    }
-
-    if existing_wtmp.len() > 1 {
-        let mut cmd_args = Vec::new();
-        for f in &existing_wtmp {
-            cmd_args.push("-f");
-            cmd_args.push(f.as_str());
-        }
-        run_last_command(&cmd_args)
-    } else if existing_wtmp.len() == 1 && existing_wtmp[0] != "/var/log/wtmp" {
-        run_last_command(&["-f", &existing_wtmp[0]])
-    } else {
-        run_last_command(&[])
-    }
+    get_default_lines()
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let opts = parse_cli_args();
+
+    if opts.install_daemon {
+        if let Err(e) = macos::install_daemon(opts.host.as_deref()) {
+            eprintln!("Error installing daemon: {}", e);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    if opts.status_daemon {
+        macos::status_daemon(opts.host.as_deref());
+        return Ok(());
+    }
+
+    if opts.uninstall_daemon {
+        if let Err(e) = macos::uninstall_daemon(opts.host.as_deref()) {
+            eprintln!("Error uninstalling daemon: {}", e);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    if opts.collect {
+        let (spans, _) = macos::collect_all_sessions(opts.host.as_deref(), 60);
+        let p = macos::get_history_file_path(opts.host.as_deref());
+        println!(
+            "Collected and merged {} activity sessions into {}",
+            spans.len(),
+            p.display()
+        );
+        return Ok(());
+    }
+
     let styler = Styler::new();
 
-    let lines = match get_input_lines() {
+    let lines = match get_input_lines(&opts) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(1);
         }
     };
+
+    if opts.raw {
+        for l in &lines {
+            println!("{}", l);
+        }
+        return Ok(());
+    }
 
     let start_re = Regex::new(
         r"^reboot\s+system\s+boot\s+(?:(?:\S+)\s+)?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+([A-Za-z]{3}\s+[\s\d]\d\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*(.*)"
