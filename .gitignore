@@ -1,0 +1,15 @@
+# Backups and logs
+last_*.txt
+wtmp_backup
+*.bak
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# Added by cargo
+
+/target
