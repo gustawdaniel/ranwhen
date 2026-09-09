@@ -147,6 +147,12 @@ fn format_heading(styler: &Styler, heading: &str) -> String {
     )
 }
 
+fn format_centered(styler: &Styler, text: &str, color: u8) -> String {
+    let text_len = text.chars().count();
+    let left_pad = OUTPUT_WIDTH.saturating_sub(text_len) / 2;
+    format!("{}{}", " ".repeat(left_pad), styler.style(text, Some(color), None, false))
+}
+
 #[derive(Clone, Copy, Debug)]
 struct TimeSpan {
     from: NaiveDateTime,
@@ -599,66 +605,119 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Print default foreground color
     write!(writer, "{}", styler.get_escape_sequence(Some(FOREGROUND_COLOR), None, false))?;
 
-    // Print month views (chronological forward: oldest to newest)
+    // Group days into months and detect empty months
+    struct MonthInfo {
+        name: String,
+        days: Vec<NaiveDateTime>,
+        has_activity: bool,
+    }
+
+    let mut months: Vec<MonthInfo> = Vec::new();
     let mut cur = earliest_time;
-    let mut current_month = 0u32;
-    let levels = LEVEL_CHARACTERS.len() - 2; // 7
-
     while cur < latest_time {
-        let month_changed = cur.month() != current_month;
+        let month_name = cur.format("%B %Y").to_string();
+        let day_active = slots_by_date.get(&cur.date()).map_or(false, |slots| {
+            slots.iter().any(|(_t, tis)| *tis > Duration::zero())
+        });
 
-        if month_changed {
-            current_month = cur.month();
-            writeln!(writer)?;
-            writeln!(writer)?;
-            writeln!(writer, "{}", format_heading(&styler, &cur.format("%B %Y").to_string()))?;
-            writeln!(writer)?;
-            writeln!(writer, "{}", time_header)?;
-            writeln!(writer, "        {}", grid_header)?;
-        }
-
-        let weekday = cur.weekday().num_days_from_monday();
-        let is_weekend = weekday == 5 || weekday == 6;
-        let is_sunday = weekday == 6;
-
-        let time_fg = if is_weekend { WEEKEND_COLOR } else { WEEKDAY_COLOR };
-        let time_str = format!("{} {:2}", cur.format("%a"), cur.day());
-        let mut output_line = format!("{}  ", styler.style(&time_str, Some(time_fg), None, is_sunday));
-
-        let mut time_sum = Duration::zero();
-        let mut bar_text = String::new();
-
-        if let Some(day_slots) = slots_by_date.get(&cur.date()) {
-            for (slot_index, (_t, tis)) in day_slots.iter().enumerate() {
-                time_sum = time_sum + *tis;
-                let ratio = tis.num_milliseconds() as f64 / half_hour.num_milliseconds() as f64;
-                let level = (ratio * levels as f64).round() as usize;
-                let level = level.min(levels);
-                let grid = slot_index % 12 == 0;
-
-                let fg = if is_weekend {
-                    if grid { BAR_WEEKEND_COLOR_GRID } else { BAR_WEEKEND_COLOR }
-                } else {
-                    if grid { BAR_COLOR_GRID } else { BAR_COLOR }
-                };
-                let bg = if grid { Some(GRID_COLOR) } else { None };
-                bar_text.push_str(&styler.style(LEVEL_CHARACTERS[level], Some(fg), bg, false));
+        if let Some(last_month) = months.last_mut() {
+            if last_month.name == month_name {
+                last_month.days.push(cur);
+                if day_active {
+                    last_month.has_activity = true;
+                }
+            } else {
+                months.push(MonthInfo {
+                    name: month_name,
+                    days: vec![cur],
+                    has_activity: day_active,
+                });
             }
+        } else {
+            months.push(MonthInfo {
+                name: month_name,
+                days: vec![cur],
+                has_activity: day_active,
+            });
         }
+        cur = cur + day;
+    }
 
-        output_line.push_str(&bar_text);
-        output_line.push_str(&styler.style(" ", None, Some(GRID_COLOR), false));
-        output_line.push_str(" ");
-        output_line.push_str(&format_delta_short(&styler, time_sum.num_seconds()));
+    let levels = LEVEL_CHARACTERS.len() - 2; // 7
+    let mut m_idx = 0;
 
-        writeln!(writer, "{}", output_line)?;
-
-        let next_day = cur + day;
-        if next_day.month() != cur.month() || next_day >= latest_time {
+    while m_idx < months.len() {
+        if !months[m_idx].has_activity {
+            let empty_start = m_idx;
+            while m_idx < months.len() && !months[m_idx].has_activity {
+                m_idx += 1;
+            }
+            let empty_count = m_idx - empty_start;
+            writeln!(writer)?;
+            writeln!(writer)?;
+            if empty_count == 1 {
+                writeln!(writer, "{}", format_heading(&styler, &months[empty_start].name))?;
+                writeln!(writer, "{}", format_centered(&styler, "── no activity ──", GRID_COLOR))?;
+            } else {
+                let first_name = &months[empty_start].name;
+                let last_name = &months[m_idx - 1].name;
+                let range_title = format!("{} – {}", first_name, last_name);
+                let count_str = format!("── {} months with no activity ──", empty_count);
+                writeln!(writer, "{}", format_heading(&styler, &range_title))?;
+                writeln!(writer, "{}", format_centered(&styler, &count_str, GRID_COLOR))?;
+            }
             writeln!(writer, "        {}", grid_footer)?;
+            continue;
         }
 
-        cur = next_day;
+        let month = &months[m_idx];
+        writeln!(writer)?;
+        writeln!(writer)?;
+        writeln!(writer, "{}", format_heading(&styler, &month.name))?;
+        writeln!(writer)?;
+        writeln!(writer, "{}", time_header)?;
+        writeln!(writer, "        {}", grid_header)?;
+
+        for day_cur in &month.days {
+            let weekday = day_cur.weekday().num_days_from_monday();
+            let is_weekend = weekday == 5 || weekday == 6;
+            let is_sunday = weekday == 6;
+
+            let time_fg = if is_weekend { WEEKEND_COLOR } else { WEEKDAY_COLOR };
+            let time_str = format!("{} {:2}", day_cur.format("%a"), day_cur.day());
+            let mut output_line = format!("{}  ", styler.style(&time_str, Some(time_fg), None, is_sunday));
+
+            let mut time_sum = Duration::zero();
+            let mut bar_text = String::new();
+
+            if let Some(day_slots) = slots_by_date.get(&day_cur.date()) {
+                for (slot_index, (_t, tis)) in day_slots.iter().enumerate() {
+                    time_sum = time_sum + *tis;
+                    let ratio = tis.num_milliseconds() as f64 / half_hour.num_milliseconds() as f64;
+                    let level = (ratio * levels as f64).round() as usize;
+                    let level = level.min(levels);
+                    let grid = slot_index % 12 == 0;
+
+                    let fg = if is_weekend {
+                        if grid { BAR_WEEKEND_COLOR_GRID } else { BAR_WEEKEND_COLOR }
+                    } else {
+                        if grid { BAR_COLOR_GRID } else { BAR_COLOR }
+                    };
+                    let bg = if grid { Some(GRID_COLOR) } else { None };
+                    bar_text.push_str(&styler.style(LEVEL_CHARACTERS[level], Some(fg), bg, false));
+                }
+            }
+
+            output_line.push_str(&bar_text);
+            output_line.push_str(&styler.style(" ", None, Some(GRID_COLOR), false));
+            output_line.push_str(" ");
+            output_line.push_str(&format_delta_short(&styler, time_sum.num_seconds()));
+
+            writeln!(writer, "{}", output_line)?;
+        }
+
+        writeln!(writer, "        {}", grid_footer)?;
+        m_idx += 1;
     }
 
     // Print summary at bottom

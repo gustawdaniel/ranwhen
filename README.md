@@ -33,10 +33,12 @@ When rendering in an interactive terminal (including PTY allocation and terminal
 * **Memory Footprint (Peak RSS)**: **11.6 MB** (Rust) vs **25.4 MB** (Python).
 * **Output Parity**: **100% byte-for-byte identical** verified with `diff` and `md5sum` (`0134ab2f6c031b95465007f04db4ae5e`).
 
-### Key Improvements & Bugfixes:
+### Key Improvements & Features:
 1. **Zero Startup Overhead**: Native machine code eliminates Python runtime initialization, dynamic module loading, regex compilation, and object allocation bottlenecks.
-2. **Fixed Crash & Active Sessions**: Restored 196 missing reboot sessions (`crash` durations and `still running` active sessions) that were silently discarded by the original script, recovering hundreds of days of uptime data.
-3. **Flexible Data Sources**: Seamlessly parses live `/var/log/wtmp`, rotated logs (`wtmp.1`), static text backups (`last` output), or piped standard input (`stdin`).
+2. **Chronological Forward Timeline**: Renders naturally from oldest to newest so the most recent activity, period summary, and histogram appear right at the bottom prompt of your terminal.
+3. **Compact Empty Month Folding**: Multi-month inactive periods are automatically folded into elegant compact banners (e.g. `── 33 months with no activity ──`), eliminating hundreds of blank terminal lines while scrolling through years of logs.
+4. **Fixed Crash & Active Sessions**: Restored 196 missing reboot sessions (`crash` durations and `still running` active sessions) that were silently discarded by the original script, recovering hundreds of days of uptime data.
+5. **Flexible Data Sources**: Seamlessly parses live `/var/log/wtmp`, rotated logs (`wtmp.1`), static text backups (`last` output), remote hosts via SSH, or piped standard input (`stdin`).
 
 
 # Usage
@@ -79,11 +81,13 @@ cargo build --release
 #### Arch Linux (AUR)
 Install using your preferred AUR helper:
 ```bash
+# Fast precompiled binary release (no Rust compiler needed):
 paru -S ranwhen
-# or development git version:
+
+# Or development version compiled from latest git master:
 paru -S ranwhen-git
 ```
-The PKGBUILD definitions are maintained in [`aur/PKGBUILD`](aur/PKGBUILD) and [`aur/ranwhen-git/PKGBUILD`](aur/ranwhen-git/PKGBUILD).
+The PKGBUILD definitions are maintained in [`aur/PKGBUILD`](aur/PKGBUILD) (binary package) and [`aur/ranwhen-git/PKGBUILD`](aur/ranwhen-git/PKGBUILD) (git package).
 
 #### macOS (Homebrew Tap)
 Add the official tap and install `ranwhen`:

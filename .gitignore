@@ -11,5 +11,9 @@ __pycache__/
 
 
 # Added by cargo
-
 /target
+
+# Release artifacts
+*.tar.gz
+*.tar.gz.sha256
+ranwhen-v*

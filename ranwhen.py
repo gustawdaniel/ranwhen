@@ -202,6 +202,13 @@ def format_heading(heading):
 	return full_heading
 
 
+def format_centered(text, color):
+	text_len = len(text)
+	left_pad = max(0, int((output_width - text_len) / 2))
+	return (" " * left_pad) + style_text(text, fgcolor = color)
+
+
+
 def is_binary_file(path):
 	try:
 		with open(path, "rb") as f:
@@ -211,6 +218,41 @@ def is_binary_file(path):
 		return False
 
 
+def fetch_remote_lines(host):
+	try:
+		res = subprocess.run(["ssh", host, "uname -s"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+		if res.returncode != 0:
+			sys.exit("Could not connect to '%s' via SSH: %s" % (host, res.stderr.strip()))
+		remote_os = res.stdout.strip()
+	except FileNotFoundError:
+		sys.exit("Error: 'ssh' command not found.")
+
+	# Try remote 'ranwhen --raw' first
+	try:
+		raw_res = subprocess.run(["ssh", host, "ranwhen --raw 2>/dev/null"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True)
+		if raw_res.returncode == 0 and raw_res.stdout.strip():
+			lines = raw_res.stdout.splitlines()
+			if lines:
+				return lines
+	except Exception:
+		pass
+
+	if remote_os == "Darwin":
+		# macOS fallback: run ranwhen --raw if possible or error
+		sys.exit("Remote macOS host '%s' requires ranwhen installed on the target." % host)
+	else:
+		try:
+			last_res = subprocess.run(["ssh", host, "last -R -F reboot"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+			if last_res.returncode != 0:
+				sys.exit("Failed to retrieve reboot history from '%s': %s" % (host, last_res.stderr.strip()))
+			lines = last_res.stdout.splitlines()
+			if not lines:
+				sys.exit("No reboot history found on '%s'" % host)
+			return lines
+		except Exception as e:
+			sys.exit("Failed to run 'last' on '%s': %s" % (host, e))
+
+
 def get_input_lines():
 	parser = argparse.ArgumentParser(
 		description = "ranwhen – Visualize when your system was running"
@@ -218,7 +260,7 @@ def get_input_lines():
 	parser.add_argument(
 		"file",
 		nargs = "?",
-		help = "Path to a text log file (e.g. output of 'last') or binary wtmp file. Use '-' for stdin.",
+		help = "Path to a text log file, binary wtmp file, or remote host name. Use '-' for stdin.",
 	)
 	parser.add_argument(
 		"-f", "--file-wtmp",
@@ -238,10 +280,12 @@ def get_input_lines():
 		except subprocess.CalledProcessError as e:
 			sys.exit("Error running '%s': %s" % (" ".join(cmd), e))
 
-	# 2. Positional file argument or stdin '-'
+	# 2. Positional argument: file, remote host, or stdin '-'
 	if args.file:
 		if args.file == "-":
 			return sys.stdin.read().splitlines()
+		if not os.path.exists(args.file):
+			return fetch_remote_lines(args.file)
 		if is_binary_file(args.file):
 			cmd = ["last", "-R", "-F", "reboot", "-f", args.file]
 			try:
@@ -382,7 +426,6 @@ time_header = "       0:00 " + style_text("☾", fgcolor = night_color) + \
 
 grid_header = style_text("▆           ▆           ▆           ▆           ▆", fgcolor = grid_color)
 grid_footer = style_text("▀           ▀           ▀           ▀           ▀", fgcolor = grid_color)
-
 level_characters = [ " ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" ]
 
 
@@ -390,69 +433,96 @@ level_characters = [ " ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"
 print(get_escape_sequence(fgcolor = foreground_color), end = "")
 
 
-### Print month views (chronological forward: oldest to newest)
-current_time = earliest_time
+### Group days into months and detect empty months
+months = []
+cur = earliest_time
 
-# 0 is not a valid month index, so the "month changed" condition
-# will always be fulfilled in the first iteration
-current_month = 0
+while cur < latest_time:
+	month_name = cur.strftime("%B %Y")
+	day_active = any(slot["time_in_slot"] > timedelta(0) for slot in slots_by_date.get(cur.date(), []))
 
-# Do not use full block character here to keep separation between lines
+	if months and months[-1]["name"] == month_name:
+		months[-1]["days"].append(cur)
+		if day_active:
+			months[-1]["has_activity"] = True
+	else:
+		months.append({
+			"name": month_name,
+			"days": [cur],
+			"has_activity": day_active,
+		})
+	cur += day
+
 levels = len(level_characters) - 2
+m_idx = 0
 
-while current_time < latest_time:
-	month_changed = current_time.month != current_month
-
-	if month_changed:
-		current_month = current_time.month
+while m_idx < len(months):
+	if not months[m_idx]["has_activity"]:
+		empty_start = m_idx
+		while m_idx < len(months) and not months[m_idx]["has_activity"]:
+			m_idx += 1
+		empty_count = m_idx - empty_start
 		print()
 		print()
-		print(format_heading(current_time.strftime("%B %Y")))
-		print()
-		print(time_header)
-		print("        " + grid_header)
-
-	weekend = current_time.weekday() in [5, 6]
-	sunday  = current_time.weekday() == 6
-
-	time_text = style_text(current_time.strftime("%a"), \
-		                   fgcolor = weekend_color if weekend else weekday_color, \
-		                   bold = sunday)
-	time_text += current_time.strftime(" %d").replace(" 0", "  ")
-
-	output_line = time_text + "  "
-
-	time_sum = timedelta()
-
-	bar_text = ""
-
-	slot_index = 0
-
-	### Build chart for day
-	for time_slot in slots_by_date.get(current_time.date(), []):
-		time_sum += time_slot["time_in_slot"]
-		level = round((time_slot["time_in_slot"] / half_hour) * levels)
-		grid = slot_index % 12 == 0
-		slot_index += 1
-		bar_text += style_text(level_characters[level], \
-			                   fgcolor = (bar_weekend_color_grid if grid else bar_weekend_color) if weekend \
-			                             else (bar_color_grid if grid else bar_color), \
-			                   bgcolor = grid_color if grid else None)
-
-	output_line += bar_text
-
-	output_line += style_text(" ", bgcolor = grid_color)
-
-	output_line += " " + format_delta_short(time_sum)
-
-	print(output_line)
-
-	next_day = current_time + day
-	if (next_day.month != current_time.month) or (next_day >= latest_time):
-		# End of month
+		if empty_count == 1:
+			print(format_heading(months[empty_start]["name"]))
+			print(format_centered("── no activity ──", grid_color))
+		else:
+			first_name = months[empty_start]["name"]
+			last_name = months[m_idx - 1]["name"]
+			range_title = f"{first_name} – {last_name}"
+			count_str = f"── {empty_count} months with no activity ──"
+			print(format_heading(range_title))
+			print(format_centered(count_str, grid_color))
 		print("        " + grid_footer)
+		continue
 
-	current_time = next_day
+	month = months[m_idx]
+	print()
+	print()
+	print(format_heading(month["name"]))
+	print()
+	print(time_header)
+	print("        " + grid_header)
+
+	for current_time in month["days"]:
+		weekend = current_time.weekday() in [5, 6]
+		sunday  = current_time.weekday() == 6
+
+		time_text = style_text(current_time.strftime("%a"), \
+			                   fgcolor = weekend_color if weekend else weekday_color, \
+			                   bold = sunday)
+		time_text += current_time.strftime(" %d").replace(" 0", "  ")
+
+		output_line = time_text + "  "
+
+		time_sum = timedelta()
+
+		bar_text = ""
+
+		slot_index = 0
+
+		### Build chart for day
+		for time_slot in slots_by_date.get(current_time.date(), []):
+			time_sum += time_slot["time_in_slot"]
+			level = round((time_slot["time_in_slot"] / half_hour) * levels)
+			grid = slot_index % 12 == 0
+			slot_index += 1
+			bar_text += style_text(level_characters[level], \
+				                   fgcolor = (bar_weekend_color_grid if grid else bar_weekend_color) if weekend \
+				                             else (bar_color_grid if grid else bar_color), \
+				                   bgcolor = grid_color if grid else None)
+
+		output_line += bar_text
+
+		output_line += style_text(" ", bgcolor = grid_color)
+
+		output_line += " " + format_delta_short(time_sum)
+
+		print(output_line)
+
+	print("        " + grid_footer)
+	m_idx += 1
 
 
 ### Print summary
