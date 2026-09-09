@@ -390,8 +390,8 @@ level_characters = [ " ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"
 print(get_escape_sequence(fgcolor = foreground_color), end = "")
 
 
-### Print month views
-current_time = latest_time
+### Print month views (chronological forward: oldest to newest)
+current_time = earliest_time
 
 # 0 is not a valid month index, so the "month changed" condition
 # will always be fulfilled in the first iteration
@@ -400,9 +400,7 @@ current_month = 0
 # Do not use full block character here to keep separation between lines
 levels = len(level_characters) - 2
 
-while current_time > earliest_time:
-	current_time -= day
-
+while current_time < latest_time:
 	month_changed = current_time.month != current_month
 
 	if month_changed:
@@ -449,10 +447,12 @@ while current_time > earliest_time:
 
 	print(output_line)
 
-	if (current_time.day == 1) or \
-	   (current_time <= earliest_time):
+	next_day = current_time + day
+	if (next_day.month != current_time.month) or (next_day >= latest_time):
 		# End of month
 		print("        " + grid_footer)
+
+	current_time = next_day
 
 
 ### Print summary

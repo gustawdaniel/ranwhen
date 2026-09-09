@@ -546,13 +546,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Print default foreground color
     write!(writer, "{}", styler.get_escape_sequence(Some(FOREGROUND_COLOR), None, false))?;
 
-    // Print month views
-    let mut cur = latest_time;
+    // Print month views (chronological forward: oldest to newest)
+    let mut cur = earliest_time;
     let mut current_month = 0u32;
     let levels = LEVEL_CHARACTERS.len() - 2; // 7
 
-    while cur > earliest_time {
-        cur = cur - day;
+    while cur < latest_time {
         let month_changed = cur.month() != current_month;
 
         if month_changed {
@@ -601,9 +600,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         writeln!(writer, "{}", output_line)?;
 
-        if cur.day() == 1 || cur <= earliest_time {
+        let next_day = cur + day;
+        if next_day.month() != cur.month() || next_day >= latest_time {
             writeln!(writer, "        {}", grid_footer)?;
         }
+
+        cur = next_day;
     }
 
     // Print summary at bottom
