@@ -11,7 +11,7 @@ makedepends=('cargo')
 provides=('runwhen')
 conflicts=('runwhen')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('7ca51a3e9c5538178a451d80f1886cbe3a9a753e1a3feef940c1aa4e9feb1312')
 
 build() {
   cd "$pkgname-$pkgver"
