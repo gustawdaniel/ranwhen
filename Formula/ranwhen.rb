@@ -1,8 +1,8 @@
 class Ranwhen < Formula
   desc "Visualize when your system was running (with native macOS screen/power tracking)"
   homepage "https://github.com/gustawdaniel/ranwhen"
-  url "https://github.com/gustawdaniel/ranwhen/archive/refs/tags/v0.2.1.tar.gz"
-  sha256 "ff09b46d0fcdd83a19eca2404d0c62f89203f81069a5955a552c22581690f895"
+  url "https://github.com/gustawdaniel/ranwhen/archive/refs/tags/v0.2.2.tar.gz"
+  sha256 "7a2dfdfcefc801e65cbc5d60604e1b87711a72eb2caf30ed18a1d87e92e71633"
   license "GPL-3.0-or-later"
   head "https://github.com/gustawdaniel/ranwhen.git", branch: "master"
 
