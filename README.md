@@ -95,8 +95,17 @@ Add the official tap, trust it (required on Homebrew 6+), and install `ranwhen`:
 brew tap gustawdaniel/ranwhen
 brew trust gustawdaniel/ranwhen
 brew install ranwhen
+
+# Enable the background LaunchAgent collector:
+ranwhen --install-daemon
 ```
-The formula automatically registers the background LaunchAgent collector to ensure your activity history is preserved.
+The collector automatically runs in the background, continuously archiving your activity sessions into `~/.local/share/ranwhen/activity_sessions.log` so your history is preserved across macOS log rotations.
+
+You can check its status anytime:
+```bash
+ranwhen --status-daemon
+```
+
 To install from source or HEAD:
 ```bash
 brew install --HEAD gustawdaniel/ranwhen/ranwhen

@@ -304,12 +304,18 @@ pub fn format_ranwhen_lines(spans: &[Span], live_session: Option<NaiveDateTime>)
 }
 
 pub fn install_daemon(host: Option<&str>) -> Result<(), String> {
-    let binary_path = if host.is_some() {
-        "/Users/daniel/.local/bin/ranwhen".to_string()
+    let (binary_path, home) = if let Some(h) = host {
+        let which_out = Command::new("ssh").args([h, "which ranwhen 2>/dev/null || echo ~/.local/bin/ranwhen"]).output();
+        let b = which_out.ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "~/.local/bin/ranwhen".to_string());
+        let home_out = Command::new("ssh").args([h, "echo $HOME"]).output();
+        let hm = home_out.ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "~".to_string());
+        (b, hm)
     } else {
-        std::env::current_exe()
+        let b = std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "/usr/local/bin/ranwhen".to_string())
+            .unwrap_or_else(|_| "/opt/homebrew/bin/ranwhen".to_string());
+        let hm = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        (b, hm)
     };
 
     let plist_content = format!(
@@ -329,13 +335,13 @@ pub fn install_daemon(host: Option<&str>) -> Result<(), String> {
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/daniel/.local/share/ranwhen/collector.log</string>
+    <string>{}/.local/share/ranwhen/collector.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/daniel/.local/share/ranwhen/collector.err</string>
+    <string>{}/.local/share/ranwhen/collector.err</string>
 </dict>
 </plist>
 "#,
-        PLIST_LABEL, binary_path
+        PLIST_LABEL, binary_path, home, home
     );
 
     let plist_name = format!("{}.plist", PLIST_LABEL);

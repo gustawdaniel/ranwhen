@@ -12,8 +12,14 @@ class Ranwhen < Formula
     system "cargo", "install", *std_cargo_args
   end
 
-  def post_install
-    system "#{bin}/ranwhen", "--install-daemon"
+  def caveats
+    <<~EOS
+      To enable automatic background activity tracking (preserving history across macOS log rotations):
+        ranwhen --install-daemon
+
+      To verify daemon status:
+        ranwhen --status-daemon
+    EOS
   end
 
   test do
